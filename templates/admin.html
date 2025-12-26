@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Admin Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        :root { --sidebar-width: 250px; }
+        .table-responsive { max-height: 70vh; overflow-y: auto; border-radius: 8px; }
+        .nav-tabs .nav-link.active { font-weight: bold; border-top: 3px solid #0d6efd; color: #0d6efd; }
+        .user-row { transition: all 0.3s ease; }
+        .user-row.deleting { opacity: 0; transform: translateX(20px); }
+        .sticky-top { background: white; z-index: 10; }
+    </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark mb-4 shadow-sm">
+    <div class="container">
+        <span class="navbar-brand">🛡️ <span class="d-none d-sm-inline">Iwakura</span> Admin</span>
+        <div class="d-flex align-items-center text-white">
+            <small class="me-3">Welcome, <strong>{{ session.name }}</strong></small>
+            <a href="/logout" class="btn btn-sm btn-outline-danger">Logout</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container pb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="h4 mb-0">Management Console</h2>
+        <a href="/analytics" class="btn btn-primary shadow-sm">
+            <i class="fas fa-chart-line me-2"></i>Global Analytics
+        </a>
+    </div>
+
+    <ul class="nav nav-tabs mb-4 border-0" id="adminTabs" role="tablist">
+        <li class="nav-item">
+            <button class="nav-link active border-0" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button">
+                <i class="fas fa-users me-2"></i>Users
+            </button>
+        </li>
+        <li class="nav-item">
+            <button class="nav-link border-0" id="content-tab" data-bs-toggle="tab" data-bs-target="#content" type="button">
+                <i class="fas fa-layer-group me-2"></i>Global TPs
+            </button>
+        </li>
+    </ul>
+
+    <div class="tab-content" id="adminTabContent">
+        <div class="tab-pane fade show active" id="users">
+            <div class="row g-4">
+                <div class="col-lg-4">
+                    <div class="card border-0 shadow-sm h-100">
+                        <div class="card-header bg-white fw-bold py-3"><i class="fas fa-user-plus text-success me-2"></i>New Account</div>
+                        <div class="card-body">
+                            <form id="createUserForm">
+                                <div class="mb-3">
+                                    <label class="small fw-bold">System Role</label>
+                                    <select name="role" id="createRoleSelect" class="form-select" onchange="toggleCreateFields()">
+                                        <option value="Etudiant">Student</option>
+                                        <option value="Formateur">Formateur</option>
+                                        <option value="Direction">Direction</option>
+                                    </select>
+                                </div>
+                                <div class="row g-2 mb-2">
+                                    <div class="col"><input type="text" name="nom" class="form-control" placeholder="Last Name" required></div>
+                                    <div class="col"><input type="text" name="prenom" class="form-control" placeholder="First Name" required></div>
+                                </div>
+                                <div class="mb-2"><input type="email" name="email" class="form-control" placeholder="Email" required></div>
+                                <div class="mb-3"><input type="password" name="password" class="form-control" placeholder="Password" required></div>
+
+                                <div id="create_student_fields">
+                                    <div class="mb-2">
+                                        <label class="small text-muted">Academic Group</label>
+                                        <select name="groupe_id" class="form-select">
+                                            {% for filiere, groups in grouped_groups.items() %}
+                                            <optgroup label="{{ filiere }}">
+                                                {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+                                            </optgroup>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="mb-3"><input type="text" name="cne" class="form-control" placeholder="CNE"></div>
+                                </div>
+                                <div id="create_formateur_fields" style="display:none;">
+                                    <div class="mb-3"><input type="text" name="matricule" class="form-control" placeholder="Matricule ID"></div>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100 fw-bold">Create Account</button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-lg-8">
+                    <div class="card border-0 shadow-sm">
+                        <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                            <h6 class="mb-0 fw-bold">Directory</h6>
+                            <div class="input-group input-group-sm w-50">
+                                <span class="input-group-text bg-light border-end-0"><i class="fas fa-search text-muted"></i></span>
+                                <input type="text" id="userSearch" class="form-control bg-light border-start-0" placeholder="Filter users..." onkeyup="filterUsers()">
+                            </div>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0 align-middle" id="userTable">
+                                <thead class="table-light sticky-top">
+                                    <tr><th>User Profile</th><th>Role</th><th>Status/Classes</th><th>Actions</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% for u in users %}
+                                    <tr id="user-row-{{ u.id }}" class="user-row">
+                                        <td>
+                                            <div class="fw-bold">{{ u.name }}</div>
+                                            <small class="text-muted">{{ u.email }}</small>
+                                        </td>
+                                        <td>
+                                            <span class="badge rounded-pill bg-{{ 'primary' if u.role == 'Etudiant' else 'warning' if u.role == 'Formateur' else 'dark' }}">
+                                                {{ u.role }}
+                                            </span>
+                                        </td>
+                                        <td id="assignments-{{ u.id }}">
+                                            {% if u.role == 'Etudiant' %}
+                                                <span class="badge bg-info text-dark">{{ u.student_group or 'Unassigned' }}</span>
+                                            {% elif u.role == 'Formateur' %}
+                                                {% if u.teacher_groups %}
+                                                    <div class="dropdown">
+                                                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">
+                                                            {{ u.teacher_groups|length }} Classes
+                                                        </button>
+                                                        <ul class="dropdown-menu shadow">
+                                                            {% for grp in u.teacher_groups %}
+                                                            <li><span class="dropdown-item-text small"><i class="fas fa-check text-success me-2"></i>{{ grp }}</span></li>
+                                                            {% endfor %}
+                                                        </ul>
+                                                    </div>
+                                                {% else %}
+                                                    <small class="text-muted italic">No classes</small>
+                                                {% endif %}
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <div class="btn-group">
+                                                <button class="btn btn-sm btn-light border" onclick="openEditModal({{ u.id }})"><i class="fas fa-edit text-primary"></i></button>
+                                                <button class="btn btn-sm btn-light border text-danger" onclick="deleteUser({{ u.id }})"><i class="fas fa-trash"></i></button>
+                                                {% if u.role == 'Formateur' %}
+                                                <button class="btn btn-sm btn-warning" onclick="openAssignModal({{ u.id }}, '{{ u.name }}')"><i class="fas fa-link"></i></button>
+                                                {% endif %}
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab-pane fade" id="content">
+            <div class="card border-0 shadow-sm">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr><th>TP Title</th><th>Group</th><th>Module</th><th>Teacher</th><th>Deadline</th></tr>
+                        </thead>
+                        <tbody>
+                            {% for tp in all_tps %}
+                            <tr>
+                                <td><strong>{{ tp.titre }}</strong></td>
+                                <td><span class="badge bg-secondary">{{ tp.group }}</span></td>
+                                <td>{{ tp.module }}</td>
+                                <td>{{ tp.teacher }}</td>
+                                <td><small class="text-muted">{{ tp.deadline }}</small></td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="5" class="text-center py-5 text-muted">No published content found.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editUserModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content border-0 shadow">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title">Edit User</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="editUserForm">
+                <div class="modal-body">
+                    <input type="hidden" name="user_id" id="edit_user_id">
+                    <input type="hidden" name="role" id="edit_role_hidden">
+                    <div class="row g-2 mb-3">
+                        <div class="col"><label class="small fw-bold">Nom</label><input type="text" name="nom" id="edit_nom" class="form-control" required></div>
+                        <div class="col"><label class="small fw-bold">Prenom</label><input type="text" name="prenom" id="edit_prenom" class="form-control" required></div>
+                    </div>
+                    <div class="mb-3"><label class="small fw-bold">Email</label><input type="email" name="email" id="edit_email" class="form-control" required></div>
+                    <div class="mb-3">
+                        <label class="small fw-bold">Reset Password</label>
+                        <input type="password" name="password" class="form-control" placeholder="Leave empty to keep current">
+                    </div>
+                    
+                    <div id="edit_student_extra" style="display:none;">
+                        <label class="small fw-bold">Academic Group</label>
+                        <select name="groupe_id" id="edit_groupe_id" class="form-select mb-2">
+                            {% for filiere, groups in grouped_groups.items() %}
+                                <optgroup label="{{ filiere }}">
+                                    {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+                                </optgroup>
+                            {% endfor %}
+                        </select>
+                        <input type="text" name="cne" id="edit_cne" class="form-control" placeholder="CNE">
+                    </div>
+                    <div id="edit_teacher_extra" style="display:none;">
+                        <label class="small fw-bold">Teacher Matricule</label>
+                        <input type="text" name="matricule" id="edit_matricule" class="form-control">
+                    </div>
+                </div>
+                <div class="modal-footer border-0">
+                    <button type="submit" class="btn btn-primary w-100">Update Account</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="assignModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content border-0">
+            <div class="modal-header bg-warning">
+                <h5 class="modal-title">Teacher Assignments</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <p>Modifying assignments for: <strong id="assignTeacherName"></strong></p>
+                <form id="assignForm" class="bg-light p-3 rounded border mb-3">
+                    <input type="hidden" name="formateur_id" id="assign_formateur_id">
+                    <div class="mb-2">
+                        <select name="groupe_id" id="target_group" class="form-select form-select-sm" required>
+                            {% for filiere, groups in grouped_groups.items() %}
+                                <optgroup label="{{ filiere }}">
+                                    {% for g in groups %}<option value="{{ g.id }}">{{ g.name }}</option>{% endfor %}
+                                </optgroup>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="mb-2">
+                        <select name="module_id" id="target_module" class="form-select form-select-sm" required>
+                            {% for m in modules %}<option value="{{ m.id }}">{{ m.name }}</option>{% endfor %}
+                        </select>
+                    </div>
+                    <button type="submit" class="btn btn-warning btn-sm w-100 fw-bold">Link Class</button>
+                </form>
+                <ul id="assignmentList" class="list-group list-group-flush border rounded"></ul>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="toast-container position-fixed top-0 end-0 p-3">
+    <div id="liveToast" class="toast align-items-center text-white border-0 shadow" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="d-flex">
+            <div class="toast-body" id="toastMessage"></div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // --- UTILS ---
+    function showToast(msg, isError = false) {
+        const toastEl = document.getElementById('liveToast');
+        toastEl.classList.remove('bg-success', 'bg-danger');
+        toastEl.classList.add(isError ? 'bg-danger' : 'bg-success');
+        document.getElementById('toastMessage').innerText = msg;
+        new bootstrap.Toast(toastEl).show();
+    }
+
+    // --- USER CRUD ---
+    document.getElementById('createUserForm').onsubmit = function(e) {
+        e.preventDefault();
+        fetch('/admin/create_user', { method: 'POST', body: new FormData(this) })
+            .then(r => r.json()).then(res => {
+                if(res.status === 'success') {
+                    showToast("Account Created!");
+                    location.reload(); // Re-fetch list for full sort sync
+                } else showToast("Creation failed", true);
+            });
+    };
+
+    function deleteUser(id) {
+        if(!confirm('Permanently delete this user?')) return;
+        const row = document.getElementById(`user-row-${id}`);
+        row.classList.add('deleting');
+        
+        fetch(`/admin/delete_user/${id}`, { method: 'POST' })
+            .then(r => r.json()).then(res => {
+                if(res.status === 'success') {
+                    setTimeout(() => row.remove(), 300);
+                    showToast("User deleted.");
+                } else {
+                    row.classList.remove('deleting');
+                    showToast("Error deleting user.", true);
+                }
+            });
+    }
+
+    function openEditModal(userId) {
+        fetch(`/admin/get_user/${userId}`).then(r => r.json()).then(data => {
+            document.getElementById('edit_user_id').value = data.id;
+            document.getElementById('edit_role_hidden').value = data.role;
+            document.getElementById('edit_nom').value = data.nom;
+            document.getElementById('edit_prenom').value = data.prenom;
+            document.getElementById('edit_email').value = data.email;
+            document.getElementById('edit_student_extra').style.display = (data.role === 'Etudiant') ? 'block' : 'none';
+            document.getElementById('edit_teacher_extra').style.display = (data.role === 'Formateur') ? 'block' : 'none';
+            if(data.role === 'Etudiant') {
+                document.getElementById('edit_cne').value = data.cne;
+                document.getElementById('edit_groupe_id').value = data.groupe_id;
+            } else if(data.role === 'Formateur') {
+                document.getElementById('edit_matricule').value = data.matricule;
+            }
+            new bootstrap.Modal(document.getElementById('editUserModal')).show();
+        });
+    }
+
+    document.getElementById('editUserForm').onsubmit = function(e) {
+        e.preventDefault();
+        const tid = document.getElementById('edit_user_id').value;
+        fetch('/admin/update_user', { method: 'POST', body: new FormData(this) })
+            .then(r => r.json()).then(res => {
+                if(res.status === 'success') {
+                    bootstrap.Modal.getInstance(document.getElementById('editUserModal')).hide();
+                    showToast("User updated.");
+                    location.reload(); // Simple refresh to update table info
+                }
+            });
+    };
+
+    // --- ASSIGNMENTS ---
+    function openAssignModal(id, name) {
+        document.getElementById('assign_formateur_id').value = id;
+        document.getElementById('assignTeacherName').innerText = name;
+        loadAssignments(id);
+        new bootstrap.Modal(document.getElementById('assignModal')).show();
+    }
+
+    function loadAssignments(teacherId) {
+        const list = document.getElementById('assignmentList');
+        list.innerHTML = '<li class="list-group-item text-center"><div class="spinner-border spinner-border-sm text-warning"></div></li>';
+        fetch(`/admin/get_assignments/${teacherId}`).then(r => r.json()).then(data => {
+            list.innerHTML = data.length ? '' : '<li class="list-group-item text-muted text-center small">No assignments.</li>';
+            data.forEach(a => {
+                list.innerHTML += `
+                    <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                        <div class="small"><strong>${a.group}</strong> <span class="text-muted">(${a.module})</span></div>
+                        <button class="btn btn-sm text-danger" onclick="deleteAssignment(${a.id}, ${teacherId})"><i class="fas fa-times"></i></button>
+                    </li>`;
+            });
+        });
+    }
+
+    document.getElementById('assignForm').onsubmit = function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const tid = formData.get('formateur_id');
+        fetch('/admin/assign_module', { method:'POST', body:formData })
+            .then(r => r.json()).then(res => {
+                if(res.status === 'success') {
+                    showToast("Class Linked.");
+                    loadAssignments(tid);
+                    refreshTeacherCell(tid);
+                } else showToast("Conflict or DB error", true);
+            });
+    };
+
+    function deleteAssignment(aid, tid) {
+        fetch(`/admin/delete_assignment/${aid}`, { method:'POST' })
+            .then(r => r.json()).then(res => {
+                if(res.status === 'success') {
+                    loadAssignments(tid);
+                    refreshTeacherCell(tid);
+                }
+            });
+    }
+
+    function refreshTeacherCell(tid) {
+        fetch(`/admin/get_assignments/${tid}`).then(r => r.json()).then(data => {
+            const container = document.getElementById(`assignments-${tid}`);
+            if(!data.length) { container.innerHTML = '<small class="text-muted italic">No classes</small>'; return; }
+            let html = `
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown">${data.length} Classes</button>
+                    <ul class="dropdown-menu shadow">
+                        <li><h6 class="dropdown-header">Assigned Groups</h6></li>
+                        ${data.map(a => `<li><span class="dropdown-item-text small"><i class="fas fa-check text-success me-2"></i>${a.group} (${a.module})</span></li>`).join('')}
+                    </ul>
+                </div>`;
+            container.innerHTML = html;
+        });
+    }
+
+    // --- SEARCH ---
+    function filterUsers() {
+        const input = document.getElementById('userSearch').value.toLowerCase();
+        document.querySelectorAll('#userTable tbody tr').forEach(row => {
+            row.style.display = row.innerText.toLowerCase().includes(input) ? '' : 'none';
+        });
+    }
+
+    function toggleCreateFields() {
+        const role = document.getElementById('createRoleSelect').value;
+        document.getElementById('create_student_fields').style.display = (role === 'Etudiant') ? 'block' : 'none';
+        document.getElementById('create_formateur_fields').style.display = (role === 'Formateur') ? 'block' : 'none';
+    }
+</script>
+</body>
+</html>

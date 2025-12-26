@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Analytics Dashboard</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container">
+        <span class="navbar-brand"><i class="fas fa-chart-line me-2"></i>Analytics Dashboard</span>
+        <div>
+            {% if role == 'Direction' %}
+                <a href="/admin" class="btn btn-sm btn-outline-light me-2">Back to Admin</a>
+            {% else %}
+                <a href="/formateur" class="btn btn-sm btn-outline-light me-2">Back to Dashboard</a>
+            {% endif %}
+            <a href="/logout" class="btn btn-sm btn-light">Logout</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container pb-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+            <h4 class="mb-0 fw-bold">Attendance Insights</h4>
+            <p class="text-muted small mb-0">Real-time statistics & absence tracking</p>
+        </div>
+        {% if role == 'Direction' %}
+        <div class="bg-white p-2 rounded shadow-sm border">
+            <span class="me-2 fw-bold text-muted small">FILTER PROFESSOR:</span>
+            <select id="teacherFilter" class="form-select form-select-sm d-inline-block" style="width: 200px;" onchange="fetchData()">
+                <option value="all">-- Global View (All) --</option>
+                {% for t in teachers %}<option value="{{ t.id }}">{{ t.name }}</option>{% endfor %}
+            </select>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 border-start border-primary border-4">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small fw-bold">Avg Attendance Rate</h6>
+                    <h2 class="mb-0 text-primary fw-bold" id="kpiRate">--%</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="card shadow-sm border-0 border-start border-success border-4">
+                <div class="card-body">
+                    <h6 class="text-muted text-uppercase small fw-bold">Sessions Conducted</h6>
+                    <h2 class="mb-0 text-success fw-bold" id="kpiSessions">--</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row g-4 mb-4">
+        <div class="col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white fw-bold"><i class="fas fa-history me-2"></i>Attendance Timeline</div>
+                <div class="card-body"><canvas id="timelineChart" style="max-height: 300px;"></canvas></div>
+            </div>
+        </div>
+        <div class="col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white fw-bold"><i class="fas fa-users me-2"></i>By Group Performance</div>
+                <div class="card-body"><canvas id="groupChart" style="max-height: 300px;"></canvas></div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-danger text-white fw-bold">
+                    <i class="fas fa-user-times me-2"></i>Absence Report (High Priority)
+                </div>
+                <div class="card-body p-0 table-responsive">
+                    <table class="table table-hover mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr><th class="ps-3">Student</th><th>Context</th><th>Dates</th><th class="text-center">Total</th></tr>
+                        </thead>
+                        <tbody id="absentTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let timelineChartInstance = null;
+    let groupChartInstance = null;
+
+    document.addEventListener("DOMContentLoaded", () => fetchData());
+
+    function fetchData() {
+        const teacherId = document.getElementById('teacherFilter') ? document.getElementById('teacherFilter').value : null;
+        fetch('/api/analytics_data', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ formateur_id: teacherId })
+        })
+        .then(r => r.json())
+        .then(data => {
+            updateKPIs(data.kpis);
+            renderCharts(data.stats);
+            renderAbsences(data.absences);
+        });
+    }
+
+    function updateKPIs(kpis) {
+        document.getElementById('kpiRate').innerText = kpis.avg_rate + "%";
+        document.getElementById('kpiSessions').innerText = kpis.total_sessions;
+    }
+
+    function renderAbsences(absences) {
+        const tbody = document.getElementById('absentTableBody');
+        tbody.innerHTML = '';
+        if (!absences || absences.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Great! No absences recorded.</td></tr>';
+            return;
+        }
+        absences.forEach(student => {
+            const isCritical = student.count >= 3;
+            let datesHtml = student.dates.map(d => `<span class="badge bg-light text-dark border me-1">${d}</span>`).join('');
+            tbody.innerHTML += `
+                <tr class="${isCritical ? 'table-danger' : ''}">
+                    <td class="ps-3 fw-bold">${student.name} <div class="small fw-normal text-muted">${student.cne}</div></td>
+                    <td>${student.module} <span class="badge bg-secondary">${student.group}</span></td>
+                    <td>${datesHtml}</td>
+                    <td class="text-center"><span class="badge ${isCritical ? 'bg-danger' : 'bg-warning text-dark'} rounded-pill">${student.count}</span></td>
+                </tr>`;
+        });
+    }
+
+    function renderCharts(stats) {
+        const labels = stats.map(s => s.date);
+        const rates = stats.map(s => s.rate);
+        
+        if(timelineChartInstance) timelineChartInstance.destroy();
+        timelineChartInstance = new Chart(document.getElementById('timelineChart'), {
+            type: 'line',
+            data: { labels: labels, datasets: [{ label: 'Attendance %', data: rates, borderColor: '#0d6efd', fill: true }] }
+        });
+
+        // Group Aggregation
+        const groups = [...new Set(stats.map(s => s.group))];
+        const groupRates = groups.map(g => {
+            const sess = stats.filter(s => s.group === g);
+            return (sess.reduce((a, b) => a + b.rate, 0) / sess.length).toFixed(1);
+        });
+
+        if(groupChartInstance) groupChartInstance.destroy();
+        groupChartInstance = new Chart(document.getElementById('groupChart'), {
+            type: 'bar',
+            data: { labels: groups, datasets: [{ label: 'Avg %', data: groupRates, backgroundColor: '#198754' }] }
+        });
+    }
+</script>
+</body>
+</html>

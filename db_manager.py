@@ -40,26 +40,37 @@ class SchoolDB:
 
     # --- AUTHENTICATION ---
     def login(self, email, password):
-        if not self.conn: return None
-        cursor = self.conn.cursor()
+        # Line 43 must be indented!
+        if not self.conn:
+            self.connect()
         
-        # 1. Fetch the user's stored hash
-        sql = "SELECT UserID, Nom, Prenom, Role, MotDePasse FROM Utilisateur WHERE Email = ?"
-        cursor.execute(sql, (email,))
-        row = cursor.fetchone()
+        try:
+            cursor = self.conn.cursor()
+            # We use .strip() to handle any hidden spaces in the SQL columns
+            sql = "SELECT UserID, Nom, Prenom, Role, MotDePasse FROM Utilisateur WHERE Email = ?"
+            cursor.execute(sql, (email.strip(),))
+            row = cursor.fetchone()
+            
+            if not row:
+                return None
+
+            # Get the hash from the DB and clean it
+            stored_hash = str(row.MotDePasse).strip()
+            
+            # Check if input is a hash (64 chars) or plain text
+            input_hash = password if len(password) == 64 else hashlib.sha256(password.encode()).hexdigest()
+
+            if stored_hash == input_hash:
+                return {
+                    "id": row.UserID, 
+                    "name": f"{row.Nom} {row.Prenom}", 
+                    "role": row.Role, 
+                    "email": email
+                }
+        except Exception as e:
+            print(f"Login error: {e}")
+            return None
         
-        if not row: return None
-
-        # 2. Check Password
-        # Case A: Input is ALREADY a SHA256 Hash (64 chars long) -> Direct Compare
-        if len(password) == 64 and row.MotDePasse == password:
-             return {"id": row.UserID, "name": f"{row.Nom} {row.Prenom}", "role": row.Role, "email": email}
-             
-        # Case B: Input is Plain Text (e.g. "123456") -> Hash it first, then Compare
-        input_hash = hashlib.sha256(password.encode()).hexdigest()
-        if row.MotDePasse == input_hash:
-             return {"id": row.UserID, "name": f"{row.Nom} {row.Prenom}", "role": row.Role, "email": email}
-
         return None
 
     # --- ADMIN: USER MANAGEMENT ---
